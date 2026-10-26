@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # ubuntu-latest (26.04) has no Ruby 3.0 build; 22.04 does.
+    runs-on: ${{ matrix.ruby == '3.0' && 'ubuntu-22.04' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
