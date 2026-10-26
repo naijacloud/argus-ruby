@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in the SDK behaves differently from the documentation
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A DSN's key is public by design, but please still redact it, and never
+        paste request headers, cookies or log lines that hold your users' data.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead. Run with `debug: true` (or `ARGUS_DEBUG=1`) and include the `[argus]` lines.
+    validations: {required: true}
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest snippet that shows it. A failing test is ideal.
+      render: ruby
+    validations: {required: true}
+  - type: input
+    id: sdk
+    attributes:
+      label: SDK version
+      placeholder: "0.1.0"
+    validations: {required: true}
+  - type: input
+    id: runtime
+    attributes:
+      label: Ruby version
+      description: "Output of `ruby -v`"
+    validations: {required: true}
+  - type: input
+    id: framework
+    attributes:
+      label: Framework
+      description: Rails, Sinatra, Hanami, plain Rack, a script… with its version.

@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# A re-run or a force-pushed tag must not race a second push against the
+# first. Never cancel in progress: RubyGems will not take the same version
+# twice, so a half-finished run is finished by hand, not by a second one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The same matrix that guards main. A tag that would not have passed CI does
+  # not get published.
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+
+    # RubyGems' trusted publisher can be bound to this environment name.
+    # Somewhere to hang a required reviewer, too: a pushed gem can be yanked but
+    # its version can never be reused.
+    environment:
+      name: rubygems
+      url: https://rubygems.org/gems/naijacloud-argus
+
+    permissions:
+      # Trusted publishing: RubyGems exchanges this run's OIDC token for an API
+      # key that lives for minutes. The gemspec sets rubygems_mfa_required, and
+      # that key is what satisfies it without a human typing a one-time code.
+      id-token: write
+      # `gh release create`.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+
+      - name: Check the tag against the gem
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(ruby -r ./lib/naijacloud/argus/version -e 'print NaijaCloud::Argus::VERSION')"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match lib/naijacloud/argus/version.rb ($version). Delete the tag, fix the version, tag again."
+            exit 1
+          fi
+          case "$version" in
+            *[a-z]*) ;; # a pre-release (0.3.0.rc1) needs no changelog section
+            *) grep -q "^## \[$version\]" CHANGELOG.md || {
+                 echo "::error::CHANGELOG.md has no '## [$version]' heading. Move the Unreleased entries under it."
+                 exit 1
+               } ;;
+          esac
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build the gem
+        run: gem build naijacloud-argus.gemspec
+
+      # Writes a short-lived key to ~/.gem/credentials from the OIDC token,
+      # using the trusted publisher configured on rubygems.org.
+      - name: Get a RubyGems credential
+        uses: rubygems/configure-rubygems-credentials@v1.0.0
+
+      - name: Push to RubyGems
+        run: gem push "naijacloud-argus-${VERSION}.gem"
+
+      # RubyGems first, then the release: the other order announces a version
+      # that cannot be installed yet.
+      - name: Create the GitHub release from the changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## / { exit }
+            on && !/^\[[^]]+\]: / { print }
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
+          flags=()
+          case "$VERSION" in *[a-z]*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" --title "$TAG" --notes-file notes.md "${flags[@]}" "naijacloud-argus-${VERSION}.gem"

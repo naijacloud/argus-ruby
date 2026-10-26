@@ -1,0 +1,16 @@
+*.gem
+/pkg/
+/tmp/
+/doc/
+/.yardoc/
+/coverage/
+Gemfile.lock
+.bundle/
+.DS_Store
+.idea/
+.vscode/
+
+# Never let a real key near the repo.
+.env
+.env.*
+*.pem

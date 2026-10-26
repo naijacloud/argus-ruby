@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # release.yml calls this workflow rather than repeating the matrix, so a tag
+  # is verified by exactly the checks that guard main.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.0 is the declared floor, so it is tested rather than assumed. The
+        # suite needs no network and no bundle install: minitest and rake ship
+        # with Ruby.
+        ruby: ["3.0", "3.2", "3.3", "3.4"]
+
+    name: ruby ${{ matrix.ruby }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: false
+
+      - name: Syntax check every file
+        run: find lib test examples -name '*.rb' -print0 | xargs -0 -n1 ruby -wc
+
+      - name: Test
+        run: rake test
+
+      - name: Build the gem
+        run: gem build naijacloud-argus.gemspec
+
+      - name: Install the built gem and load it
+        run: |
+          gem install --local "naijacloud-argus-$(ruby -r ./lib/naijacloud/argus/version -e 'print NaijaCloud::Argus::VERSION').gem"
+          ruby -e 'require "naijacloud/argus"; NaijaCloud::Argus.init; abort "enabled without a DSN" if NaijaCloud::Argus.enabled?; puts NaijaCloud::Argus::VERSION'
+
+  # The Railtie, ActiveJob hook and Rails.error subscriber against a real,
+  # minimal Rails app. Separate from the matrix so the main suite keeps proving
+  # the gem works with no Rails installed.
+  rails:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { ruby: "3.2", rails: "~> 7.1.0" }
+          - { ruby: "3.3", rails: "~> 7.2.0" }
+          - { ruby: "3.4", rails: "~> 8.0.0" }
+
+    name: rails ${{ matrix.rails }} on ruby ${{ matrix.ruby }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: false
+
+      - name: Install Rails
+        run: gem install --no-document "railties:${{ matrix.rails }}" "activejob:${{ matrix.rails }}"
+
+      - name: Rails test
+        run: ruby -Ilib -Itest test/rails_test.rb
